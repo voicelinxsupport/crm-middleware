@@ -30,4 +30,17 @@ router.post('/config/custom-fields', requireJwt, (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
+router.post('/setup/create-client', async (req, res) => {
+  const { name, setup_key } = req.body;
+  if (setup_key !== process.env.JWT_SECRET) {
+    res.status(401).json({ error: 'Yetkisiz' }); return;
+  }
+  const crypto = await import('crypto');
+  const { createClient } = await import('../db/database');
+  const id = 'cl_' + crypto.randomBytes(12).toString('hex');
+  const secret = crypto.randomBytes(32).toString('hex');
+  await createClient(id, secret, name || 'PBXware');
+  res.json({ client_id: id, api_key: secret });
+});
+
 export default router;
