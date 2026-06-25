@@ -1,0 +1,32 @@
+databases:
+  - name: middleware-db
+    databaseName: middleware
+    user: middleware
+    plan: free
+
+services:
+  - type: web
+    name: crm-middleware
+    plan: free
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: middleware-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true        # Render otomatik rastgele üretir
+      - key: SALESFORCE_CLIENT_ID
+        sync: false                # Deploy sırasında elle gireceksin
+      - key: SALESFORCE_CLIENT_SECRET
+        sync: false
+      - key: SALESFORCE_DOMAIN
+        sync: false
+      - key: SALESFORCE_CALLBACK_URL
+        sync: false
