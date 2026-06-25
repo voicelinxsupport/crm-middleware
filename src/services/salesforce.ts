@@ -16,7 +16,7 @@ export function buildLoginUrl(state: string): string {
     scope: 'openid email refresh_token offline_access api',
     state,
   });
-  return `${AUTH_URL}?${params.toString()}`;
+  return AUTH_URL + '?' + params.toString();
 }
 
 export async function exchangeCodeForToken(code: string): Promise<{
@@ -62,60 +62,116 @@ export async function sfRequest(
   data?: object
 ): Promise<any> {
   let tokenRow = await getUserToken(clientId, userId);
-  if (!tokenRow) throw new Error('Kullanıcı giriş yapmamış');
+  if (!tokenRow) throw new Error('Kullanici giris yapmamis');
 
   const now = Math.floor(Date.now() / 1000);
   if (tokenRow.expires_at && tokenRow.expires_at < now && tokenRow.refresh_token) {
     const refreshed = await refreshAccessToken(tokenRow.refresh_token);
-    tokenRow = { ...tokenRow, access_token: refreshed.access_token, instance_url: refreshed.instance_url, expires_at: now + 3600 };
+    tokenRow = {
+      ...tokenRow,
+      access_token: refreshed.access_token,
+      instance_url: refreshed.instance_url,
+      expires_at: now + 3600,
+    };
     await saveUserToken(tokenRow);
   }
 
-  const resp = await axios({
-    method, data,
-    url: `${tokenRow.instance_url}${path}`,
-    headers: { Authorization: `Bearer ${tokenRow.access_token}`, 'Content-Type': 'application/json' },
-  });
+  const url = tokenRow.instance_url + path;
+  const headers = {
+    Authorization: 'Bearer ' + tokenRow.access_token,
+    'Content-Type': 'application/json',
+  };
+  const resp = await axios({ method, data, url, headers });
   return resp.data;
 }
 
-export async function searchByPhone(clientId: string, userId: string, phone: string, objectTypes: string[]): Promise<any[]> {
+export async function searchByPhone(
+  clientId: string,
+  userId: string,
+  phone: string,
+  objectTypes: string[]
+): Promise<any[]> {
   const objects = objectTypes.length > 0 ? objectTypes : ['Contact', 'Lead', 'Account'];
   const clean = phone.replace(/^\+/, '').replace(/^0/, '');
   const results: any[] = [];
   for (const obj of objects) {
     try {
-      const soql = `SELECT Id, FirstName, LastName, Name, Email, Phone, MobilePhone FROM ${obj} WHERE Phone LIKE '%${clean}%' OR MobilePhone LIKE '%${clean}%' LIMIT 10`;
-      const data = await sfRequest(clientId, userId, 'get', `/services/data/v60.0/query?q=${encodeURIComponent(soql)}`);
+      const soql = 'SELECT Id, FirstName, LastName, Name, Email, Phone, MobilePhone FROM '
+        + obj + ' WHERE Phone LIKE \'%' + clean + '%\' OR MobilePhone LIKE \'%' + clean + '%\' LIMIT 10';
+      const data = await sfRequest(clientId, userId, 'get',
+        '/services/data/v60.0/query?q=' + encodeURIComponent(soql));
       for (const r of data.records || []) {
-        results.push({ id: r.Id, type: obj, title: r.Name || `${r.FirstName || ''} ${r.LastName || ''}`.trim(), emails: r.Email ? [r.Email] : [], phones: [r.Phone, r.MobilePhone].filter(Boolean), last_modified_timestamp: Math.floor(Date.now() / 1000) });
+        results.push({
+          id: r.Id,
+          type: obj,
+          title: r.Name || (r.FirstName || '') + ' ' + (r.LastName || ''),
+          emails: r.Email ? [r.Email] : [],
+          phones: [r.Phone, r.MobilePhone].filter(Boolean),
+          last_modified_timestamp: Math.floor(Date.now() / 1000),
+        });
       }
-    } catch (err) { console.error(`Search error ${obj}:`, err); }
+    } catch (err) {
+      console.error('Search error ' + obj + ':', err);
+    }
   }
   return results;
 }
 
-export async function searchByEmail(clientId: string, userId: string, email: string, objectTypes: string[]): Promise<any[]> {
+export async function searchByEmail(
+  clientId: string,
+  userId: string,
+  email: string,
+  objectTypes: string[]
+): Promise<any[]> {
   const objects = objectTypes.length > 0 ? objectTypes : ['Contact', 'Lead'];
   const results: any[] = [];
   for (const obj of objects) {
     try {
-      const soql = `SELECT Id, FirstName, LastName, Name, Email, Phone FROM ${obj} WHERE Email = '${email}' LIMIT 10`;
-      const data = await sfRequest(clientId, userId, 'get', `/services/data/v60.0/query?q=${encodeURIComponent(soql)}`);
+      const soql = 'SELECT Id, FirstName, LastName, Name, Email, Phone FROM '
+        + obj + ' WHERE Email = \'' + email + '\' LIMIT 10';
+      const data = await sfRequest(clientId, userId, 'get',
+        '/services/data/v60.0/query?q=' + encodeURIComponent(soql));
       for (const r of data.records || []) {
-        results.push({ id: r.Id, type: obj, title: r.Name || `${r.FirstName || ''} ${r.LastName || ''}`.trim(), emails: r.Email ? [r.Email] : [], phones: [r.Phone].filter(Boolean), last_modified_timestamp: Math.floor(Date.now() / 1000) });
+        results.push({
+          id: r.Id,
+          type: obj,
+          title: r.Name || (r.FirstName || '') + ' ' + (r.LastName || ''),
+          emails: r.Email ? [r.Email] : [],
+          phones: [r.Phone].filter(Boolean),
+          last_modified_timestamp: Math.floor(Date.now() / 1000),
+        });
       }
-    } catch (err) { console.error(`Search error ${obj}:`, err); }
+    } catch (err) {
+      console.error('Search error ' + obj + ':', err);
+    }
   }
   return results;
 }
 
-export async function searchByText(clientId: string, userId: string, query: string, objectTypes: string[]): Promise<any[]> {
+export async function searchByText(
+  clientId: string,
+  userId: string,
+  query: string,
+  objectTypes: string[]
+): Promise<any[]> {
   const objects = objectTypes.length > 0 ? objectTypes : ['Contact', 'Lead', 'Account'];
-  const returning = objects.map(o => `${o}(Id, Name, Email, Phone)`).join(', ');
+  const returning = objects.map(function(o) { return o + '(Id, Name, Email, Phone)'; }).join(', ');
   try {
-    const sosl = `FIND {${query}*} IN ALL FIELDS RETURNING ${returning} LIMIT 20`;
-    const data = await sfRequest(clientId, userId, 'get', `/services/data/v60.0/search?q=${encodeURIComponent(sosl)}`);
-    return (data.searchRecords || []).map((r: any) => ({
-      id: r.Id, type: r.attributes?.type || 'Unknown', title: r.Name || '',
-      emails: r.Email ?
+    const sosl = 'FIND {' + query + '*} IN ALL FIELDS RETURNING ' + returning + ' LIMIT 20';
+    const data = await sfRequest(clientId, userId, 'get',
+      '/services/data/v60.0/search?q=' + encodeURIComponent(sosl));
+    return (data.searchRecords || []).map(function(r: any) {
+      return {
+        id: r.Id,
+        type: r.attributes ? r.attributes.type : 'Unknown',
+        title: r.Name || '',
+        emails: r.Email ? [r.Email] : [],
+        phones: r.Phone ? [r.Phone] : [],
+        last_modified_timestamp: Math.floor(Date.now() / 1000),
+      };
+    });
+  } catch (err) {
+    console.error('SOSL error:', err);
+    return [];
+  }
+}
